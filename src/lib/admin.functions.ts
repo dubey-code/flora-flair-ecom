@@ -1,0 +1,149 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Order, Product } from "@/lib/shop-types";
+
+const PRODUCT_COLUMNS =
+  "id, slug, title, subtitle, description, composition, care, price, old_price, category_id, tags, images, stock, published, featured";
+
+async function assertAdmin(context: { supabase: any; userId: string }) {
+  const { data, error } = await context.supabase.rpc("has_role", {
+    _user_id: context.userId,
+    _role: "admin",
+  });
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Доступ только для администраторов");
+}
+
+export const getAdminStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
+    if (error) throw new Error(error.message);
+    return { isAdmin: Boolean(data), userId: context.userId };
+  });
+
+export const adminListProducts = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const [products, categories] = await Promise.all([
+      context.supabase.from("products").select(PRODUCT_COLUMNS).order("created_at", { ascending: false }),
+      context.supabase
+        .from("categories")
+        .select("id, slug, title, description, sort_order")
+        .order("sort_order"),
+    ]);
+    if (products.error) throw new Error(products.error.message);
+    if (categories.error) throw new Error(categories.error.message);
+    return { products: (products.data ?? []) as Product[], categories: categories.data ?? [] };
+  });
+
+const productSchema = z.object({
+  id: z.string().uuid().optional().or(z.literal("")),
+  slug: z
+    .string()
+    .trim()
+    .min(2)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/, "Только латиница, цифры и дефис"),
+  title: z.string().trim().min(2).max(160),
+  subtitle: z.string().trim().max(160).optional().or(z.literal("")),
+  description: z.string().trim().max(4000).optional().or(z.literal("")),
+  composition: z.string().trim().max(1000).optional().or(z.literal("")),
+  care: z.string().trim().max(1000).optional().or(z.literal("")),
+  price: z.number().int().min(0).max(10_000_000),
+  oldPrice: z.number().int().min(0).max(10_000_000).nullable().optional(),
+  categoryId: z.string().uuid().nullable().optional().or(z.literal("")),
+  tags: z.array(z.string().trim().min(1).max(40)).max(12),
+  images: z.array(z.string().trim().min(1).max(500)).max(8),
+  stock: z.number().int().min(0).max(100000),
+  published: z.boolean(),
+  featured: z.boolean(),
+});
+
+export const adminSaveProduct = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => productSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const row = {
+      slug: data.slug,
+      title: data.title,
+      subtitle: data.subtitle || null,
+      description: data.description || "",
+      composition: data.composition || null,
+      care: data.care || null,
+      price: data.price,
+      old_price: data.oldPrice ?? null,
+      category_id: data.categoryId ? data.categoryId : null,
+      tags: data.tags,
+      images: data.images,
+      stock: data.stock,
+      published: data.published,
+      featured: data.featured,
+    };
+
+    if (data.id) {
+      const { error } = await context.supabase.from("products").update(row).eq("id", data.id);
+      if (error) throw new Error(error.message);
+      return { id: data.id };
+    }
+
+    const { data: inserted, error } = await context.supabase
+      .from("products")
+      .insert(row)
+      .select("id")
+      .single();
+    if (error || !inserted) throw new Error(error?.message ?? "Не удалось сохранить товар");
+    return { id: inserted.id as string };
+  });
+
+export const adminDeleteProduct = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string }) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { error } = await context.supabase.from("products").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const adminListOrders = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const { data, error } = await context.supabase
+      .from("orders")
+      .select(
+        "id, order_number, customer_name, phone, email, delivery_method, address, delivery_date, comment, items_total, delivery_price, total, status, created_at, order_items(id, title, price, quantity, image, product_id)",
+      )
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    return { orders: (data ?? []) as unknown as Order[] };
+  });
+
+export const adminUpdateOrderStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string; status: string }) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        status: z.enum(["new", "confirmed", "shipped", "done", "cancelled"]),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { error } = await context.supabase
+      .from("orders")
+      .update({ status: data.status })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });

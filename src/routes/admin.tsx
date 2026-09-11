@@ -172,19 +172,23 @@ function AdminArea() {
   }
 
   return (
-    <section className="mx-auto max-w-6xl px-5 py-12">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
+    <section className="mx-auto max-w-6xl px-4 py-8 sm:px-5 sm:py-12">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4 sm:flex sm:flex-wrap sm:justify-between">
+        <div className="min-w-0">
           <p className="eyebrow">админ-панель</p>
-          <h1 className="mt-2 font-display text-4xl">Магазин изнутри</h1>
+          <h1 className="mt-2 font-display text-2xl sm:text-4xl">Магазин изнутри</h1>
         </div>
-        <Button variant="outline" className="rounded-full" onClick={() => supabase.auth.signOut()}>
+        <Button
+          variant="outline"
+          className="shrink-0 rounded-full"
+          onClick={() => supabase.auth.signOut()}
+        >
           Выйти
         </Button>
       </div>
 
       <Tabs defaultValue="products" className="mt-8">
-        <TabsList>
+        <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="products">Товары</TabsTrigger>
           <TabsTrigger value="categories">Категории</TabsTrigger>
           <TabsTrigger value="orders">Заказы</TabsTrigger>
@@ -289,12 +293,12 @@ function ProductsTab() {
         {(data?.products ?? []).map((product) => (
           <article
             key={product.id}
-            className="flex items-center gap-4 rounded-3xl border border-border bg-card p-4"
+            className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 rounded-3xl border border-border bg-card p-4 sm:flex"
           >
             <img
               src={product.images?.[0] ?? "/hero.jpg"}
               alt=""
-              className="h-16 w-16 rounded-2xl object-cover"
+              className="h-16 w-16 shrink-0 rounded-2xl object-cover"
             />
             <div className="min-w-0 flex-1">
               <p className="truncate font-display text-lg">{product.title}</p>
@@ -303,29 +307,31 @@ function ProductsTab() {
                 {data?.categories.find((c) => c.id === product.category_id)?.title ?? "без категории"}
               </p>
             </div>
-            {!product.published ? (
-              <Badge variant="secondary" className="rounded-full">
-                Скрыт
-              </Badge>
-            ) : null}
-            <Button size="sm" variant="ghost" onClick={() => edit(product)}>
-              Изменить
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive"
-              onClick={() => {
-                if (confirm(`Удалить «${product.title}»?`)) deleteMutation.mutate(product.id);
-              }}
-            >
-              Удалить
-            </Button>
+            <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-auto sm:shrink-0">
+              {!product.published ? (
+                <Badge variant="secondary" className="rounded-full">
+                  Скрыт
+                </Badge>
+              ) : null}
+              <Button size="sm" variant="ghost" onClick={() => edit(product)}>
+                Изменить
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive"
+                onClick={() => {
+                  if (confirm(`Удалить «${product.title}»?`)) deleteMutation.mutate(product.id);
+                }}
+              >
+                Удалить
+              </Button>
+            </div>
           </article>
         ))}
       </div>
 
-      <aside className="h-fit rounded-3xl border border-border bg-card p-6 lg:sticky lg:top-24">
+      <aside className="h-fit rounded-3xl border border-border bg-card p-5 sm:p-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:overscroll-contain">
         <h2 className="font-display text-2xl">{form.id ? "Редактирование" : "Новый товар"}</h2>
         <div className="mt-4 space-y-3 text-sm">
           <Field label="Название" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
@@ -480,10 +486,10 @@ function CategoriesTab() {
         {(data?.categories ?? []).map((category: Category) => (
           <article
             key={category.id}
-            className="flex items-center gap-4 rounded-3xl border border-border bg-card p-4"
+            className="flex flex-wrap items-center gap-3 rounded-3xl border border-border bg-card p-4 sm:gap-4"
           >
-            <div className="min-w-0 flex-1">
-              <p className="font-display text-lg">{category.title}</p>
+            <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+              <p className="truncate font-display text-lg">{category.title}</p>
               <p className="text-xs text-muted-foreground">
                 /{category.slug} · товаров:{" "}
                 {(data?.products ?? []).filter((p) => p.category_id === category.id).length}
@@ -519,7 +525,7 @@ function CategoriesTab() {
         ))}
       </div>
 
-      <aside className="h-fit rounded-3xl border border-border bg-card p-6 lg:sticky lg:top-24">
+      <aside className="h-fit rounded-3xl border border-border bg-card p-5 sm:p-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:overscroll-contain">
         <h2 className="font-display text-2xl">{form.id ? "Изменить категорию" : "Новая категория"}</h2>
         <div className="mt-4 space-y-3 text-sm">
           <Field label="Название" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />

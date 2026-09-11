@@ -128,10 +128,11 @@ export const adminPatchProduct = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const patch: Record<string, unknown> = {};
-    if (data.published !== undefined) patch['published'] = data.published;
-    if (data.featured !== undefined) patch['featured'] = data.featured;
-    if (data.stock !== undefined) patch['stock'] = data.stock;
+    const patch: { published?: boolean; featured?: boolean; stock?: number } = {};
+    if (data.published !== undefined) patch.published = data.published;
+    if (data.featured !== undefined) patch.featured = data.featured;
+    if (data.stock !== undefined) patch.stock = data.stock;
+
     if (Object.keys(patch).length === 0) return { ok: true };
     const { error } = await context.supabase.from("products").update(patch).eq("id", data.id);
     if (error) throw new Error(error.message);

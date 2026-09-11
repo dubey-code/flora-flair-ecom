@@ -99,13 +99,13 @@ function AdminPage() {
 
   if (session === null) {
     return (
-      <SiteShell>
+      <SiteShell hideChat>
         <p className="mx-auto max-w-md px-5 py-24 text-center text-muted-foreground">Загрузка…</p>
       </SiteShell>
     );
   }
 
-  return <SiteShell>{session ? <AdminArea /> : <SignIn />}</SiteShell>;
+  return <SiteShell hideChat>{session ? <AdminArea /> : <SignIn />}</SiteShell>;
 }
 
 function SignIn() {

@@ -39,9 +39,11 @@ async function uploadOne(file: File): Promise<string> {
 export function ImageManager({
   images,
   onChange,
+  onDeleteFile,
 }: {
   images: string[];
   onChange: (next: string[]) => void;
+  onDeleteFile?: (path: string) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -76,8 +78,14 @@ export function ImageManager({
   };
 
   const remove = (index: number) => {
+    const src = images[index];
     onChange(images.filter((_, i) => i !== index));
+    if (src && onDeleteFile) {
+      const path = storagePathFromUrl(src);
+      if (path) onDeleteFile(path);
+    }
   };
+
 
   return (
     <div className="space-y-3">

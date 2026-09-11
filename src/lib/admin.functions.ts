@@ -147,3 +147,56 @@ export const adminUpdateOrderStatus = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+const categorySchema = z.object({
+  id: z.string().uuid().optional().or(z.literal("")),
+  slug: z
+    .string()
+    .trim()
+    .min(2)
+    .max(60)
+    .regex(/^[a-z0-9-]+$/, "Только латиница, цифры и дефис"),
+  title: z.string().trim().min(2).max(80),
+  description: z.string().trim().max(400).optional().or(z.literal("")),
+  sortOrder: z.number().int().min(0).max(999),
+});
+
+export const adminSaveCategory = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => categorySchema.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const row = {
+      slug: data.slug,
+      title: data.title,
+      description: data.description || null,
+      sort_order: data.sortOrder,
+    };
+    if (data.id) {
+      const { error } = await context.supabase.from("categories").update(row).eq("id", data.id);
+      if (error) throw new Error(error.message);
+      return { id: data.id };
+    }
+    const { data: inserted, error } = await context.supabase
+      .from("categories")
+      .insert(row)
+      .select("id")
+      .single();
+    if (error || !inserted) throw new Error(error?.message ?? "Не удалось сохранить категорию");
+    return { id: inserted.id as string };
+  });
+
+export const adminDeleteCategory = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string }) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { error: unlinkError } = await context.supabase
+      .from("products")
+      .update({ category_id: null })
+      .eq("category_id", data.id);
+    if (unlinkError) throw new Error(unlinkError.message);
+    const { error } = await context.supabase.from("categories").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Blossom } from "@/components/botanical";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useCart } from "@/lib/cart";
 
 const NAV = [
@@ -20,7 +21,9 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-6 px-5 py-4">
+      <div className="mx-auto flex max-w-6xl items-center gap-4 px-5 py-4 md:gap-6">
+        <ThemeToggle />
+
         <Link to="/" className="flex items-center gap-3">
           <Blossom className="h-8 w-8" />
           <span className="font-display text-xl leading-none">

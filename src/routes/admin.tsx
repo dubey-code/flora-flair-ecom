@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { ChatsTab } from "@/components/admin/chats-tab";
 import { ImageManager } from "@/components/admin/image-manager";
 import { SiteShell } from "@/components/site-shell";
 import { Badge } from "@/components/ui/badge";
@@ -98,13 +99,13 @@ function AdminPage() {
 
   if (session === null) {
     return (
-      <SiteShell>
+      <SiteShell hideChat>
         <p className="mx-auto max-w-md px-5 py-24 text-center text-muted-foreground">Загрузка…</p>
       </SiteShell>
     );
   }
 
-  return <SiteShell>{session ? <AdminArea /> : <SignIn />}</SiteShell>;
+  return <SiteShell hideChat>{session ? <AdminArea /> : <SignIn />}</SiteShell>;
 }
 
 function SignIn() {
@@ -225,6 +226,7 @@ function AdminArea() {
           <TabsTrigger value="products">Товары</TabsTrigger>
           <TabsTrigger value="categories">Категории</TabsTrigger>
           <TabsTrigger value="orders">Заказы</TabsTrigger>
+          <TabsTrigger value="chats">Чаты</TabsTrigger>
         </TabsList>
         <TabsContent value="products">
           <ProductsTab />
@@ -234,6 +236,9 @@ function AdminArea() {
         </TabsContent>
         <TabsContent value="orders">
           <OrdersTab />
+        </TabsContent>
+        <TabsContent value="chats">
+          <ChatsTab />
         </TabsContent>
       </Tabs>
     </section>

@@ -41,6 +41,88 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          products: Json
+          role: string
+          session_id: string
+        }
+        Insert: {
+          content?: string
+          created_at?: string
+          id?: string
+          products?: Json
+          role: string
+          session_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          products?: Json
+          role?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "chat_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_sessions: {
+        Row: {
+          consent_at: string
+          created_at: string
+          id: string
+          last_message_at: string
+          order_id: string | null
+          phone: string
+          status: string
+          token: string
+          updated_at: string
+          visitor_name: string
+        }
+        Insert: {
+          consent_at?: string
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          order_id?: string | null
+          phone: string
+          status?: string
+          token?: string
+          updated_at?: string
+          visitor_name: string
+        }
+        Update: {
+          consent_at?: string
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          order_id?: string | null
+          phone?: string
+          status?: string
+          token?: string
+          updated_at?: string
+          visitor_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_sessions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           created_at: string

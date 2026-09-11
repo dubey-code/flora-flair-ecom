@@ -486,10 +486,10 @@ function CategoriesTab() {
         {(data?.categories ?? []).map((category: Category) => (
           <article
             key={category.id}
-            className="flex items-center gap-4 rounded-3xl border border-border bg-card p-4"
+            className="flex flex-wrap items-center gap-3 rounded-3xl border border-border bg-card p-4 sm:gap-4"
           >
-            <div className="min-w-0 flex-1">
-              <p className="font-display text-lg">{category.title}</p>
+            <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+              <p className="truncate font-display text-lg">{category.title}</p>
               <p className="text-xs text-muted-foreground">
                 /{category.slug} · товаров:{" "}
                 {(data?.products ?? []).filter((p) => p.category_id === category.id).length}
@@ -525,7 +525,7 @@ function CategoriesTab() {
         ))}
       </div>
 
-      <aside className="h-fit rounded-3xl border border-border bg-card p-6 lg:sticky lg:top-24">
+      <aside className="h-fit rounded-3xl border border-border bg-card p-5 sm:p-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:overscroll-contain">
         <h2 className="font-display text-2xl">{form.id ? "Изменить категорию" : "Новая категория"}</h2>
         <div className="mt-4 space-y-3 text-sm">
           <Field label="Название" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />

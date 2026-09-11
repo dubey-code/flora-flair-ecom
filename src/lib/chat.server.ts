@@ -40,7 +40,7 @@ export async function loadMessages(sessionId: string): Promise<ChatMessage[]> {
     id: row.id as string,
     role: row.role as ChatMessage["role"],
     content: row.content as string,
-    products: (Array.isArray(row.products) ? row.products : []) as ChatProductRef[],
+    products: (Array.isArray(row.products) ? row.products : []) as unknown as ChatProductRef[],
     created_at: row.created_at as string,
   }));
 }

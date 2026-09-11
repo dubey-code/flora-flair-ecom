@@ -22,7 +22,9 @@ export interface Product {
   stock: number;
   published: boolean;
   featured: boolean;
+  created_at?: string;
 }
+
 
 export interface OrderItem {
   id: string;

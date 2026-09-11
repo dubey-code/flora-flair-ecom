@@ -91,11 +91,15 @@ function SignIn() {
     const action =
       mode === "in"
         ? supabase.auth.signInWithPassword({ email, password })
-        : supabase.auth.signUp({ email, password });
+        : supabase.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo: `${window.location.origin}/admin` },
+          });
     const { error } = await action;
     setBusy(false);
     if (error) toast.error(error.message);
-    else if (mode === "up") toast.success("Аккаунт создан. Попросите выдать права администратора.");
+    else if (mode === "up") toast.success("Аккаунт создан. Подтвердите адрес по ссылке из письма и войдите.");
   };
 
   return (

@@ -1,0 +1,1 @@
+REVOKE ALL ON FUNCTION public.grant_first_admin() FROM anon, authenticated;

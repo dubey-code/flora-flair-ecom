@@ -5,7 +5,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Order, Product } from "@/lib/shop-types";
 
 const PRODUCT_COLUMNS =
-  "id, slug, title, subtitle, description, composition, care, price, old_price, category_id, tags, images, stock, published, featured";
+  "id, slug, title, subtitle, description, composition, care, price, old_price, category_id, tags, images, stock, published, featured, created_at";
+
 
 async function assertAdmin(context: { supabase: any; userId: string }) {
   const { data, error } = await context.supabase.rpc("has_role", {
@@ -113,6 +114,92 @@ export const adminDeleteProduct = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const adminPatchProduct = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        published: z.boolean().optional(),
+        featured: z.boolean().optional(),
+        stock: z.number().int().min(0).max(100000).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const patch: { published?: boolean; featured?: boolean; stock?: number } = {};
+    if (data.published !== undefined) patch.published = data.published;
+    if (data.featured !== undefined) patch.featured = data.featured;
+    if (data.stock !== undefined) patch.stock = data.stock;
+
+    if (Object.keys(patch).length === 0) return { ok: true };
+    const { error } = await context.supabase.from("products").update(patch).eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const adminDuplicateProduct = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string }) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { data: source, error } = await context.supabase
+      .from("products")
+      .select(PRODUCT_COLUMNS)
+      .eq("id", data.id)
+      .single();
+    if (error || !source) throw new Error(error?.message ?? "Товар не найден");
+
+    const base = `${source.slug}-copy`;
+    let slug = base;
+    for (let i = 2; i < 50; i += 1) {
+      const { data: clash } = await context.supabase
+        .from("products")
+        .select("id")
+        .eq("slug", slug)
+        .maybeSingle();
+      if (!clash) break;
+      slug = `${base}-${i}`;
+    }
+
+    const { data: inserted, error: insertError } = await context.supabase
+      .from("products")
+      .insert({
+        slug,
+        title: `${source.title} (копия)`,
+        subtitle: source.subtitle,
+        description: source.description,
+        composition: source.composition,
+        care: source.care,
+        price: source.price,
+        old_price: source.old_price,
+        category_id: source.category_id,
+        tags: source.tags,
+        images: source.images,
+        stock: source.stock,
+        published: false,
+        featured: false,
+      })
+      .select("id")
+      .single();
+    if (insertError || !inserted) throw new Error(insertError?.message ?? "Не удалось скопировать");
+    return { id: inserted.id as string };
+  });
+
+export const adminDeleteImageFile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { path: string }) =>
+    z.object({ path: z.string().trim().min(1).max(500) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.storage.from("product-images").remove([data.path]);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
 export const adminListOrders = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -120,13 +207,14 @@ export const adminListOrders = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("orders")
       .select(
-        "id, order_number, customer_name, phone, email, delivery_method, address, delivery_date, comment, items_total, delivery_price, total, status, created_at, order_items(id, title, price, quantity, image, product_id)",
+        "id, order_number, customer_name, phone, email, delivery_method, address, delivery_date, comment, items_total, delivery_price, total, status, created_at, updated_at, order_items(id, title, price, quantity, image, product_id)",
       )
       .order("created_at", { ascending: false })
       .limit(200);
     if (error) throw new Error(error.message);
     return { orders: (data ?? []) as unknown as Order[] };
   });
+
 
 export const adminUpdateOrderStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

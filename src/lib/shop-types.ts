@@ -22,7 +22,9 @@ export interface Product {
   stock: number;
   published: boolean;
   featured: boolean;
+  created_at?: string;
 }
+
 
 export interface OrderItem {
   id: string;
@@ -48,5 +50,7 @@ export interface Order {
   total: number;
   status: string;
   created_at: string;
+  updated_at?: string;
   order_items?: OrderItem[];
 }
+

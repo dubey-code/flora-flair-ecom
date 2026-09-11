@@ -1,12 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { ImageManager } from "@/components/admin/image-manager";
 import { SiteShell } from "@/components/site-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -15,9 +22,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import {
   adminDeleteCategory,
+  adminDeleteImageFile,
   adminDeleteProduct,
+  adminDuplicateProduct,
   adminListOrders,
   adminListProducts,
+  adminPatchProduct,
   adminSaveCategory,
   adminSaveProduct,
   adminUpdateOrderStatus,
@@ -39,6 +49,24 @@ export const Route = createFileRoute("/admin")({
   component: AdminPage,
 });
 
+const TRANSLIT: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i",
+  й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
+  у: "u", ф: "f", х: "h", ц: "c", ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "",
+  э: "e", ю: "yu", я: "ya",
+};
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .split("")
+    .map((char) => (char in TRANSLIT ? TRANSLIT[char] : char))
+    .join("")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
 const emptyProduct = {
   id: "",
   slug: "",
@@ -51,20 +79,20 @@ const emptyProduct = {
   oldPrice: "" as string | number,
   categoryId: "",
   tags: "",
-  images: "",
+  images: [] as string[],
   stock: 0,
   published: true,
   featured: false,
 };
+
+type ProductForm = typeof emptyProduct;
 
 function AdminPage() {
   const [session, setSession] = useState<boolean | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(Boolean(data.session)));
-    const { data } = supabase.auth.onAuthStateChange((_event, next) =>
-      setSession(Boolean(next)),
-    );
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(Boolean(next)));
     return () => data.subscription.unsubscribe();
   }, []);
 
@@ -99,7 +127,8 @@ function SignIn() {
     const { error } = await action;
     setBusy(false);
     if (error) toast.error(error.message);
-    else if (mode === "up") toast.success("Аккаунт создан. Подтвердите адрес по ссылке из письма и войдите.");
+    else if (mode === "up")
+      toast.success("Аккаунт создан. Подтвердите адрес по ссылке из письма и войдите.");
   };
 
   return (
@@ -149,7 +178,11 @@ function AdminArea() {
   const status = useQuery({ queryKey: ["admin-status"], queryFn: () => getAdminStatus() });
 
   if (status.isLoading) {
-    return <p className="mx-auto max-w-md px-5 py-24 text-center text-muted-foreground">Проверяем доступ…</p>;
+    return (
+      <p className="mx-auto max-w-md px-5 py-24 text-center text-muted-foreground">
+        Проверяем доступ…
+      </p>
+    );
   }
 
   if (!status.data?.isAdmin) {
@@ -216,43 +249,47 @@ function ProductsTab() {
   const { data, isLoading } = useAdminData();
   const save = useServerFn(adminSaveProduct);
   const del = useServerFn(adminDeleteProduct);
-  const [form, setForm] = useState(emptyProduct);
+  const patch = useServerFn(adminPatchProduct);
+  const duplicate = useServerFn(adminDuplicateProduct);
+  const deleteFile = useServerFn(adminDeleteImageFile);
 
-  const reset = () => setForm(emptyProduct);
+  const [form, setForm] = useState<ProductForm | null>(null);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [visibility, setVisibility] = useState("all");
+  const [sort, setSort] = useState("new");
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["admin-products"] });
   };
 
   const saveMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (current: ProductForm) =>
       save({
         data: {
-          ...(form.id ? { id: form.id } : {}),
-          slug: form.slug.trim(),
-          title: form.title.trim(),
-          subtitle: form.subtitle.trim(),
-          description: form.description.trim(),
-          composition: form.composition.trim(),
-          care: form.care.trim(),
-          price: Number(form.price) || 0,
-          oldPrice: form.oldPrice === "" ? null : Number(form.oldPrice),
-          categoryId: form.categoryId || null,
-          tags: form.tags
+          ...(current.id ? { id: current.id } : {}),
+          slug: current.slug.trim() || slugify(current.title),
+          title: current.title.trim(),
+          subtitle: current.subtitle.trim(),
+          description: current.description.trim(),
+          composition: current.composition.trim(),
+          care: current.care.trim(),
+          price: Number(current.price) || 0,
+          oldPrice: current.oldPrice === "" ? null : Number(current.oldPrice),
+          categoryId: current.categoryId || null,
+          tags: current.tags
             .split(",")
             .map((t) => t.trim())
             .filter(Boolean),
-          images: form.images
-            .split(/[\n,]/)
-            .map((t) => t.trim())
-            .filter(Boolean),
-          stock: Number(form.stock) || 0,
-          published: form.published,
-          featured: form.featured,
+          images: current.images.map((i) => i.trim()).filter(Boolean),
+          stock: Number(current.stock) || 0,
+          published: current.published,
+          featured: current.featured,
         },
       }),
     onSuccess: () => {
       toast.success("Товар сохранён");
-      reset();
+      setForm(null);
       invalidate();
     },
     onError: (error: Error) => toast.error(error.message),
@@ -262,6 +299,22 @@ function ProductsTab() {
     mutationFn: (id: string) => del({ data: { id } }),
     onSuccess: () => {
       toast.success("Товар удалён");
+      invalidate();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const patchMutation = useMutation({
+    mutationFn: (input: { id: string; published?: boolean; featured?: boolean; stock?: number }) =>
+      patch({ data: input }),
+    onSuccess: () => invalidate(),
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: (id: string) => duplicate({ data: { id } }),
+    onSuccess: () => {
+      toast.success("Копия создана и скрыта — отредактируйте её");
       invalidate();
     },
     onError: (error: Error) => toast.error(error.message),
@@ -280,17 +333,83 @@ function ProductsTab() {
       oldPrice: product.old_price ?? "",
       categoryId: product.category_id ?? "",
       tags: (product.tags ?? []).join(", "),
-      images: (product.images ?? []).join("\n"),
+      images: product.images ?? [],
       stock: product.stock,
       published: product.published,
       featured: product.featured,
     });
 
+  const products = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const list = (data?.products ?? []).filter((product) => {
+      if (query && !`${product.title} ${product.slug}`.toLowerCase().includes(query)) return false;
+      if (categoryFilter !== "all" && (product.category_id ?? "") !== categoryFilter) return false;
+      if (visibility === "published" && !product.published) return false;
+      if (visibility === "hidden" && product.published) return false;
+      return true;
+    });
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      if (sort === "price-asc") return a.price - b.price;
+      if (sort === "price-desc") return b.price - a.price;
+      if (sort === "title") return a.title.localeCompare(b.title, "ru");
+      return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+    });
+    return sorted;
+  }, [data?.products, search, categoryFilter, visibility, sort]);
+
   return (
-    <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_360px]">
+    <div className="mt-6 space-y-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button className="rounded-full" onClick={() => setForm({ ...emptyProduct })}>
+          Новый товар
+        </Button>
+        <Input
+          placeholder="Поиск по названию"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full sm:max-w-56"
+        />
+        <select
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+        >
+          <option value="all">Все категории</option>
+          <option value="">Без категории</option>
+          {(data?.categories ?? []).map((c: Category) => (
+            <option key={c.id} value={c.id}>
+              {c.title}
+            </option>
+          ))}
+        </select>
+        <select
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={visibility}
+          onChange={(e) => setVisibility(e.target.value)}
+        >
+          <option value="all">Все</option>
+          <option value="published">Опубликованные</option>
+          <option value="hidden">Скрытые</option>
+        </select>
+        <select
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+        >
+          <option value="new">Сначала новые</option>
+          <option value="price-asc">Цена ↑</option>
+          <option value="price-desc">Цена ↓</option>
+          <option value="title">По названию</option>
+        </select>
+      </div>
+
       <div className="space-y-3">
         {isLoading ? <p className="text-sm text-muted-foreground">Загрузка…</p> : null}
-        {(data?.products ?? []).map((product) => (
+        {!isLoading && products.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Ничего не найдено.</p>
+        ) : null}
+        {products.map((product) => (
           <article
             key={product.id}
             className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 rounded-3xl border border-border bg-card p-4 sm:flex"
@@ -303,9 +422,42 @@ function ProductsTab() {
             <div className="min-w-0 flex-1">
               <p className="truncate font-display text-lg">{product.title}</p>
               <p className="text-xs text-muted-foreground">
-                {formatPrice(product.price)} · остаток {product.stock} ·{" "}
-                {data?.categories.find((c) => c.id === product.category_id)?.title ?? "без категории"}
+                {formatPrice(product.price)} ·{" "}
+                {data?.categories.find((c) => c.id === product.category_id)?.title ??
+                  "без категории"}
               </p>
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                <label className="flex items-center gap-1.5">
+                  остаток
+                  <Input
+                    type="number"
+                    min={0}
+                    defaultValue={product.stock}
+                    className="h-8 w-20"
+                    onBlur={(e) => {
+                      const value = Number(e.target.value) || 0;
+                      if (value !== product.stock)
+                        patchMutation.mutate({ id: product.id, stock: value });
+                    }}
+                  />
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <Switch
+                    checked={product.published}
+                    onCheckedChange={(v) =>
+                      patchMutation.mutate({ id: product.id, published: v })
+                    }
+                  />
+                  на сайте
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <Switch
+                    checked={product.featured}
+                    onCheckedChange={(v) => patchMutation.mutate({ id: product.id, featured: v })}
+                  />
+                  витрина
+                </label>
+              </div>
             </div>
             <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-auto sm:shrink-0">
               {!product.published ? (
@@ -315,6 +467,13 @@ function ProductsTab() {
               ) : null}
               <Button size="sm" variant="ghost" onClick={() => edit(product)}>
                 Изменить
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => duplicateMutation.mutate(product.id)}
+              >
+                Дублировать
               </Button>
               <Button
                 size="sm"
@@ -331,111 +490,151 @@ function ProductsTab() {
         ))}
       </div>
 
-      <aside className="h-fit rounded-3xl border border-border bg-card p-5 sm:p-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:overscroll-contain">
-        <h2 className="font-display text-2xl">{form.id ? "Редактирование" : "Новый товар"}</h2>
-        <div className="mt-4 space-y-3 text-sm">
-          <Field label="Название" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
-          <Field
-            label="Адрес (латиницей)"
-            value={form.slug}
-            onChange={(v) => setForm({ ...form, slug: v })}
-          />
-          <Field
-            label="Подзаголовок"
-            value={form.subtitle}
-            onChange={(v) => setForm({ ...form, subtitle: v })}
-          />
-          <div>
-            <Label>Описание</Label>
-            <Textarea
-              rows={4}
-              className="mt-1.5"
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-            />
-          </div>
-          <Field
-            label="Состав"
-            value={form.composition}
-            onChange={(v) => setForm({ ...form, composition: v })}
-          />
-          <Field label="Уход" value={form.care} onChange={(v) => setForm({ ...form, care: v })} />
-          <div className="grid grid-cols-2 gap-3">
-            <Field
-              label="Цена, ₽"
-              value={String(form.price)}
-              onChange={(v) => setForm({ ...form, price: Number(v) || 0 })}
-            />
-            <Field
-              label="Старая цена"
-              value={String(form.oldPrice)}
-              onChange={(v) => setForm({ ...form, oldPrice: v })}
-            />
-          </div>
-          <div>
-            <Label>Категория</Label>
-            <select
-              className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={form.categoryId}
-              onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-            >
-              <option value="">Без категории</option>
-              {(data?.categories ?? []).map((c: Category) => (
-                <option key={c.id} value={c.id}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Field
-            label="Теги через запятую"
-            value={form.tags}
-            onChange={(v) => setForm({ ...form, tags: v })}
-          />
-          <div>
-            <Label>Ссылки на фото (по одной в строке)</Label>
-            <Textarea
-              rows={3}
-              className="mt-1.5"
-              value={form.images}
-              onChange={(e) => setForm({ ...form, images: e.target.value })}
-            />
-          </div>
-          <Field
-            label="Остаток"
-            value={String(form.stock)}
-            onChange={(v) => setForm({ ...form, stock: Number(v) || 0 })}
-          />
-          <label className="flex items-center justify-between">
-            <span>Опубликован</span>
-            <Switch
-              checked={form.published}
-              onCheckedChange={(v) => setForm({ ...form, published: v })}
-            />
-          </label>
-          <label className="flex items-center justify-between">
-            <span>В витрине на главной</span>
-            <Switch
-              checked={form.featured}
-              onCheckedChange={(v) => setForm({ ...form, featured: v })}
-            />
-          </label>
-        </div>
-        <div className="mt-5 flex gap-2">
-          <Button
-            className="rounded-full"
-            disabled={saveMutation.isPending}
-            onClick={() => saveMutation.mutate()}
-          >
-            Сохранить
-          </Button>
-          {form.id ? (
-            <Button variant="ghost" className="rounded-full" onClick={reset}>
-              Отмена
-            </Button>
+      <Dialog open={form !== null} onOpenChange={(open) => (open ? null : setForm(null))}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl">
+              {form?.id ? "Редактирование товара" : "Новый товар"}
+            </DialogTitle>
+          </DialogHeader>
+          {form ? (
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Название"
+                  value={form.title}
+                  onChange={(v) =>
+                    setForm({
+                      ...form,
+                      title: v,
+                      slug: form.id || form.slug ? form.slug : slugify(v),
+                    })
+                  }
+                />
+                <div>
+                  <Label>Адрес страницы (латиницей)</Label>
+                  <div className="mt-1.5 flex gap-2">
+                    <Input
+                      value={form.slug}
+                      onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="shrink-0 rounded-full"
+                      onClick={() => setForm({ ...form, slug: slugify(form.title) })}
+                    >
+                      Из названия
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <Field
+                label="Подзаголовок"
+                value={form.subtitle}
+                onChange={(v) => setForm({ ...form, subtitle: v })}
+              />
+              <div>
+                <Label>Описание</Label>
+                <Textarea
+                  rows={4}
+                  className="mt-1.5"
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Состав"
+                  value={form.composition}
+                  onChange={(v) => setForm({ ...form, composition: v })}
+                />
+                <Field
+                  label="Уход"
+                  value={form.care}
+                  onChange={(v) => setForm({ ...form, care: v })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <Field
+                  label="Цена, ₽"
+                  value={String(form.price)}
+                  onChange={(v) => setForm({ ...form, price: Number(v) || 0 })}
+                />
+                <Field
+                  label="Старая цена"
+                  value={String(form.oldPrice)}
+                  onChange={(v) => setForm({ ...form, oldPrice: v })}
+                />
+                <Field
+                  label="Остаток"
+                  value={String(form.stock)}
+                  onChange={(v) => setForm({ ...form, stock: Number(v) || 0 })}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>Категория</Label>
+                  <select
+                    className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={form.categoryId}
+                    onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+                  >
+                    <option value="">Без категории</option>
+                    {(data?.categories ?? []).map((c: Category) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Field
+                  label="Теги через запятую"
+                  value={form.tags}
+                  onChange={(v) => setForm({ ...form, tags: v })}
+                />
+              </div>
+
+              <ImageManager
+                images={form.images}
+                onChange={(next) => setForm({ ...form, images: next })}
+                onDeleteFile={(path) => {
+                  deleteFile({ data: { path } }).catch(() => undefined);
+                }}
+              />
+
+              <label className="flex items-center justify-between">
+                <span>Опубликован</span>
+                <Switch
+                  checked={form.published}
+                  onCheckedChange={(v) => setForm({ ...form, published: v })}
+                />
+              </label>
+              <label className="flex items-center justify-between">
+                <span>В витрине на главной</span>
+                <Switch
+                  checked={form.featured}
+                  onCheckedChange={(v) => setForm({ ...form, featured: v })}
+                />
+              </label>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  className="rounded-full"
+                  disabled={saveMutation.isPending}
+                  onClick={() => saveMutation.mutate(form)}
+                >
+                  Сохранить
+                </Button>
+                <Button variant="ghost" className="rounded-full" onClick={() => setForm(null)}>
+                  Отмена
+                </Button>
+              </div>
+            </div>
           ) : null}
-        </div>
-      </aside>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -445,27 +644,27 @@ function CategoriesTab() {
   const { data } = useAdminData();
   const save = useServerFn(adminSaveCategory);
   const del = useServerFn(adminDeleteCategory);
-  const [form, setForm] = useState({ id: "", slug: "", title: "", description: "", sortOrder: 0 });
+  const empty = { id: "", slug: "", title: "", description: "", sortOrder: 0 };
+  const [form, setForm] = useState<typeof empty | null>(null);
 
-  const reset = () => setForm({ id: "", slug: "", title: "", description: "", sortOrder: 0 });
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["admin-products"] });
   };
 
   const saveMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (current: typeof empty) =>
       save({
         data: {
-          ...(form.id ? { id: form.id } : {}),
-          slug: form.slug.trim(),
-          title: form.title.trim(),
-          description: form.description.trim(),
-          sortOrder: Number(form.sortOrder) || 0,
+          ...(current.id ? { id: current.id } : {}),
+          slug: current.slug.trim() || slugify(current.title),
+          title: current.title.trim(),
+          description: current.description.trim(),
+          sortOrder: Number(current.sortOrder) || 0,
         },
       }),
     onSuccess: () => {
       toast.success("Категория сохранена");
-      reset();
+      setForm(null);
       invalidate();
     },
     onError: (error: Error) => toast.error(error.message),
@@ -481,85 +680,106 @@ function CategoriesTab() {
   });
 
   return (
-    <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
+    <div className="mt-6 space-y-5">
+      <Button className="rounded-full" onClick={() => setForm({ ...empty })}>
+        Новая категория
+      </Button>
+
       <div className="space-y-3">
-        {(data?.categories ?? []).map((category: Category) => (
-          <article
-            key={category.id}
-            className="flex flex-wrap items-center gap-3 rounded-3xl border border-border bg-card p-4 sm:gap-4"
-          >
-            <div className="min-w-0 flex-1 basis-full sm:basis-auto">
-              <p className="truncate font-display text-lg">{category.title}</p>
-              <p className="text-xs text-muted-foreground">
-                /{category.slug} · товаров:{" "}
-                {(data?.products ?? []).filter((p) => p.category_id === category.id).length}
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                setForm({
-                  id: category.id,
-                  slug: category.slug,
-                  title: category.title,
-                  description: category.description ?? "",
-                  sortOrder: category.sort_order,
-                })
-              }
+        {(data?.categories ?? []).map((category: Category) => {
+          const count = (data?.products ?? []).filter((p) => p.category_id === category.id).length;
+          return (
+            <article
+              key={category.id}
+              className="flex flex-wrap items-center gap-3 rounded-3xl border border-border bg-card p-4 sm:gap-4"
             >
-              Переименовать
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive"
-              onClick={() => {
-                if (confirm(`Удалить категорию «${category.title}»?`))
-                  deleteMutation.mutate(category.id);
-              }}
-            >
-              Удалить
-            </Button>
-          </article>
-        ))}
+              <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+                <p className="truncate font-display text-lg">{category.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  /{category.slug} · товаров: {count}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  setForm({
+                    id: category.id,
+                    slug: category.slug,
+                    title: category.title,
+                    description: category.description ?? "",
+                    sortOrder: category.sort_order,
+                  })
+                }
+              >
+                Переименовать
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive"
+                onClick={() => {
+                  const message =
+                    count > 0
+                      ? `В категории «${category.title}» ${count} товаров — они останутся без категории. Удалить?`
+                      : `Удалить категорию «${category.title}»?`;
+                  if (confirm(message)) deleteMutation.mutate(category.id);
+                }}
+              >
+                Удалить
+              </Button>
+            </article>
+          );
+        })}
       </div>
 
-      <aside className="h-fit rounded-3xl border border-border bg-card p-5 sm:p-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:overscroll-contain">
-        <h2 className="font-display text-2xl">{form.id ? "Изменить категорию" : "Новая категория"}</h2>
-        <div className="mt-4 space-y-3 text-sm">
-          <Field label="Название" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
-          <Field
-            label="Адрес (латиницей)"
-            value={form.slug}
-            onChange={(v) => setForm({ ...form, slug: v })}
-          />
-          <Field
-            label="Описание"
-            value={form.description}
-            onChange={(v) => setForm({ ...form, description: v })}
-          />
-          <Field
-            label="Порядок"
-            value={String(form.sortOrder)}
-            onChange={(v) => setForm({ ...form, sortOrder: Number(v) || 0 })}
-          />
-        </div>
-        <div className="mt-5 flex gap-2">
-          <Button
-            className="rounded-full"
-            disabled={saveMutation.isPending}
-            onClick={() => saveMutation.mutate()}
-          >
-            Сохранить
-          </Button>
-          {form.id ? (
-            <Button variant="ghost" className="rounded-full" onClick={reset}>
-              Отмена
-            </Button>
+      <Dialog open={form !== null} onOpenChange={(open) => (open ? null : setForm(null))}>
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl">
+              {form?.id ? "Изменить категорию" : "Новая категория"}
+            </DialogTitle>
+          </DialogHeader>
+          {form ? (
+            <div className="space-y-3 text-sm">
+              <Field
+                label="Название"
+                value={form.title}
+                onChange={(v) =>
+                  setForm({ ...form, title: v, slug: form.id || form.slug ? form.slug : slugify(v) })
+                }
+              />
+              <Field
+                label="Адрес (латиницей)"
+                value={form.slug}
+                onChange={(v) => setForm({ ...form, slug: v })}
+              />
+              <Field
+                label="Описание"
+                value={form.description}
+                onChange={(v) => setForm({ ...form, description: v })}
+              />
+              <Field
+                label="Порядок"
+                value={String(form.sortOrder)}
+                onChange={(v) => setForm({ ...form, sortOrder: Number(v) || 0 })}
+              />
+              <div className="flex gap-2 pt-2">
+                <Button
+                  className="rounded-full"
+                  disabled={saveMutation.isPending}
+                  onClick={() => saveMutation.mutate(form)}
+                >
+                  Сохранить
+                </Button>
+                <Button variant="ghost" className="rounded-full" onClick={() => setForm(null)}>
+                  Отмена
+                </Button>
+              </div>
+            </div>
           ) : null}
-        </div>
-      </aside>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -571,6 +791,8 @@ function OrdersTab() {
     queryFn: () => adminListOrders(),
   });
   const update = useServerFn(adminUpdateOrderStatus);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
 
   const statusMutation = useMutation({
     mutationFn: (input: { id: string; status: string }) => update({ data: input }),
@@ -581,22 +803,95 @@ function OrdersTab() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const all = data?.orders ?? [];
+
+  const stats = useMemo(() => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    let fresh = 0;
+    let inWork = 0;
+    let done = 0;
+    let today = 0;
+    let month = 0;
+    for (const order of all) {
+      const created = new Date(order.created_at).getTime();
+      if (order.status === "new") fresh += 1;
+      if (order.status === "confirmed" || order.status === "shipped") inWork += 1;
+      if (order.status === "done") done += 1;
+      if (order.status !== "cancelled") {
+        if (created >= startOfDay) today += order.total;
+        if (created >= startOfMonth) month += order.total;
+      }
+    }
+    return { fresh, inWork, done, today, month };
+  }, [all]);
+
+  const orders = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return all.filter((order) => {
+      if (statusFilter !== "all" && order.status !== statusFilter) return false;
+      if (
+        query &&
+        !`${order.order_number} ${order.customer_name} ${order.phone} ${order.email ?? ""}`
+          .toLowerCase()
+          .includes(query)
+      )
+        return false;
+      return true;
+    });
+  }, [all, statusFilter, search]);
+
   if (isLoading) return <p className="mt-6 text-sm text-muted-foreground">Загрузка…</p>;
 
-  const orders = data?.orders ?? [];
-  if (orders.length === 0)
-    return <p className="mt-6 text-sm text-muted-foreground">Заказов пока нет.</p>;
-
   return (
-    <div className="mt-6 space-y-4">
+    <div className="mt-6 space-y-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <Stat label="Новые" value={String(stats.fresh)} />
+        <Stat label="В работе" value={String(stats.inWork)} />
+        <Stat label="Выполнены" value={String(stats.done)} />
+        <Stat label="Сегодня" value={formatPrice(stats.today)} />
+        <Stat label="За месяц" value={formatPrice(stats.month)} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Input
+          placeholder="Номер, имя, телефон"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full sm:max-w-64"
+        />
+        <select
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="all">Все статусы</option>
+          {ORDER_STATUSES.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {orders.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Заказов не найдено.</p>
+      ) : null}
+
       {orders.map((order) => (
-        <article key={order.id} className="rounded-3xl border border-border bg-card p-6">
+        <article key={order.id} className="rounded-3xl border border-border bg-card p-5 sm:p-6">
           <div className="flex flex-wrap items-center gap-3">
             <p className="font-display text-xl">{order.order_number}</p>
             <Badge variant="secondary" className="rounded-full">
               {statusLabel(order.status)}
             </Badge>
             <span className="text-xs text-muted-foreground">{formatDate(order.created_at)}</span>
+            {order.updated_at && order.updated_at !== order.created_at ? (
+              <span className="text-xs text-muted-foreground">
+                · изменён {formatDate(order.updated_at)}
+              </span>
+            ) : null}
             <p className="ml-auto font-display text-xl">{formatPrice(order.total)}</p>
           </div>
 
@@ -611,16 +906,21 @@ function OrdersTab() {
               {order.delivery_date ? <p>Дата: {order.delivery_date}</p> : null}
               {order.comment ? <p className="mt-2 italic">{order.comment}</p> : null}
             </div>
-            <ul className="space-y-1 text-muted-foreground">
+            <ul className="space-y-2 text-muted-foreground">
               {(order.order_items ?? []).map((item) => (
-                <li key={item.id} className="flex justify-between gap-3">
-                  <span>
+                <li key={item.id} className="flex items-center gap-3">
+                  <img
+                    src={item.image ?? "/hero.jpg"}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-xl object-cover"
+                  />
+                  <span className="min-w-0 flex-1 truncate">
                     {item.title} × {item.quantity}
                   </span>
                   <span>{formatPrice(item.price * item.quantity)}</span>
                 </li>
               ))}
-              <li className="flex justify-between gap-3 border-t border-border pt-1">
+              <li className="flex justify-between gap-3 border-t border-border pt-2">
                 <span>Доставка</span>
                 <span>{formatPrice(order.delivery_price)}</span>
               </li>
@@ -642,6 +942,15 @@ function OrdersTab() {
           </div>
         </article>
       ))}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 font-display text-xl">{value}</p>
     </div>
   );
 }

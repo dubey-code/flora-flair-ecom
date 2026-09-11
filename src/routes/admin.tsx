@@ -172,19 +172,23 @@ function AdminArea() {
   }
 
   return (
-    <section className="mx-auto max-w-6xl px-5 py-12">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
+    <section className="mx-auto max-w-6xl px-4 py-8 sm:px-5 sm:py-12">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4 sm:flex sm:flex-wrap sm:justify-between">
+        <div className="min-w-0">
           <p className="eyebrow">админ-панель</p>
-          <h1 className="mt-2 font-display text-4xl">Магазин изнутри</h1>
+          <h1 className="mt-2 font-display text-2xl sm:text-4xl">Магазин изнутри</h1>
         </div>
-        <Button variant="outline" className="rounded-full" onClick={() => supabase.auth.signOut()}>
+        <Button
+          variant="outline"
+          className="shrink-0 rounded-full"
+          onClick={() => supabase.auth.signOut()}
+        >
           Выйти
         </Button>
       </div>
 
       <Tabs defaultValue="products" className="mt-8">
-        <TabsList>
+        <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="products">Товары</TabsTrigger>
           <TabsTrigger value="categories">Категории</TabsTrigger>
           <TabsTrigger value="orders">Заказы</TabsTrigger>

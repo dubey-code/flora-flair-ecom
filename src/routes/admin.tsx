@@ -289,12 +289,12 @@ function ProductsTab() {
         {(data?.products ?? []).map((product) => (
           <article
             key={product.id}
-            className="flex items-center gap-4 rounded-3xl border border-border bg-card p-4"
+            className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 rounded-3xl border border-border bg-card p-4 sm:flex"
           >
             <img
               src={product.images?.[0] ?? "/hero.jpg"}
               alt=""
-              className="h-16 w-16 rounded-2xl object-cover"
+              className="h-16 w-16 shrink-0 rounded-2xl object-cover"
             />
             <div className="min-w-0 flex-1">
               <p className="truncate font-display text-lg">{product.title}</p>
@@ -303,29 +303,31 @@ function ProductsTab() {
                 {data?.categories.find((c) => c.id === product.category_id)?.title ?? "без категории"}
               </p>
             </div>
-            {!product.published ? (
-              <Badge variant="secondary" className="rounded-full">
-                Скрыт
-              </Badge>
-            ) : null}
-            <Button size="sm" variant="ghost" onClick={() => edit(product)}>
-              Изменить
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive"
-              onClick={() => {
-                if (confirm(`Удалить «${product.title}»?`)) deleteMutation.mutate(product.id);
-              }}
-            >
-              Удалить
-            </Button>
+            <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-auto sm:shrink-0">
+              {!product.published ? (
+                <Badge variant="secondary" className="rounded-full">
+                  Скрыт
+                </Badge>
+              ) : null}
+              <Button size="sm" variant="ghost" onClick={() => edit(product)}>
+                Изменить
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive"
+                onClick={() => {
+                  if (confirm(`Удалить «${product.title}»?`)) deleteMutation.mutate(product.id);
+                }}
+              >
+                Удалить
+              </Button>
+            </div>
           </article>
         ))}
       </div>
 
-      <aside className="h-fit rounded-3xl border border-border bg-card p-6 lg:sticky lg:top-24">
+      <aside className="h-fit rounded-3xl border border-border bg-card p-5 sm:p-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:overscroll-contain">
         <h2 className="font-display text-2xl">{form.id ? "Редактирование" : "Новый товар"}</h2>
         <div className="mt-4 space-y-3 text-sm">
           <Field label="Название" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />

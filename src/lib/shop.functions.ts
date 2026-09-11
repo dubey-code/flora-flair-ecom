@@ -93,61 +93,24 @@ export const createOrder = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const supabase = createPublicClient();
 
-    const { data: products, error: productsError } = await supabase
-      .from("products")
-      .select("id, title, price, images")
-      .in(
-        "id",
-        data.items.map((i) => i.productId),
-      )
-      .eq("published", true);
-
-    if (productsError) throw new Error(productsError.message);
-    if (!products || products.length === 0) throw new Error("Товары не найдены");
-
-    const lines = data.items.flatMap((item) => {
-      const product = products.find((p) => p.id === item.productId);
-      if (!product) return [];
-      return [
-        {
-          product_id: product.id,
-          title: product.title,
-          price: product.price,
-          quantity: item.quantity,
-          image: product.images?.[0] ?? null,
-        },
-      ];
+    const { data: rows, error } = await supabase.rpc("create_order", {
+      p_customer_name: data.customerName,
+      p_phone: data.phone,
+      p_email: data.email ?? "",
+      p_delivery_method: data.deliveryMethod,
+      p_address: data.address ?? "",
+      p_delivery_date: data.deliveryDate ?? "",
+      p_comment: data.comment ?? "",
+      p_items: data.items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
     });
 
-    if (lines.length === 0) throw new Error("Товары не найдены");
+    if (error) throw new Error(error.message);
 
-    const itemsTotal = lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
-    const delivery = deliveryPrice(data.deliveryMethod, itemsTotal);
+    const result = Array.isArray(rows) ? rows[0] : rows;
+    if (!result) throw new Error("Не удалось создать заказ");
 
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .insert({
-        customer_name: data.customerName,
-        phone: data.phone,
-        email: data.email || null,
-        delivery_method: data.deliveryMethod,
-        address: data.address || null,
-        delivery_date: data.deliveryDate || null,
-        comment: data.comment || null,
-        items_total: itemsTotal,
-        delivery_price: delivery,
-        total: itemsTotal + delivery,
-      })
-      .select("id, order_number, total")
-      .single();
-
-    if (orderError || !order) throw new Error(orderError?.message ?? "Не удалось создать заказ");
-
-    const { error: itemsError } = await supabase
-      .from("order_items")
-      .insert(lines.map((l) => ({ ...l, order_id: order.id })));
-
-    if (itemsError) throw new Error(itemsError.message);
-
-    return { orderNumber: order.order_number, total: order.total };
+    return {
+      orderNumber: result.order_number as string,
+      total: Number(result.total),
+    };
   });

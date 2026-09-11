@@ -50,5 +50,7 @@ export interface Order {
   total: number;
   status: string;
   created_at: string;
+  updated_at?: string;
   order_items?: OrderItem[];
 }
+

@@ -288,3 +288,106 @@ export const adminDeleteCategory = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+export const adminListChats = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const { data, error } = await context.supabase
+      .from("chat_sessions")
+      .select(
+        "id, visitor_name, phone, status, order_id, consent_at, last_message_at, created_at, orders(order_number)",
+      )
+      .order("last_message_at", { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    return {
+      chats: (data ?? []).map((row) => ({
+        id: row.id as string,
+        visitorName: row.visitor_name as string,
+        phone: row.phone as string,
+        status: row.status as string,
+        consentAt: row.consent_at as string,
+        lastMessageAt: row.last_message_at as string,
+        createdAt: row.created_at as string,
+        orderNumber:
+          (row as unknown as { orders: { order_number: string } | null }).orders?.order_number ??
+          null,
+      })),
+    };
+  });
+
+export const adminGetChat = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string }) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { data: rows, error } = await context.supabase
+      .from("chat_messages")
+      .select("id, role, content, products, created_at")
+      .eq("session_id", data.id)
+      .order("created_at", { ascending: true })
+      .limit(400);
+    if (error) throw new Error(error.message);
+    return {
+      messages: (rows ?? []).map((row) => ({
+        id: row.id as string,
+        role: row.role as string,
+        content: row.content as string,
+        createdAt: row.created_at as string,
+      })),
+    };
+  });
+
+export const adminSendChatMessage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ id: z.string().uuid(), text: z.string().trim().min(1).max(2000) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const now = new Date().toISOString();
+    const { error } = await context.supabase
+      .from("chat_messages")
+      .insert({ session_id: data.id, role: "operator", content: data.text });
+    if (error) throw new Error(error.message);
+    const { error: sessionError } = await context.supabase
+      .from("chat_sessions")
+      .update({ status: "operator", last_message_at: now })
+      .eq("id", data.id);
+    if (sessionError) throw new Error(sessionError.message);
+    return { ok: true };
+  });
+
+export const adminSetChatStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        status: z.enum(["bot", "needs_operator", "operator", "closed"]),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { error } = await context.supabase
+      .from("chat_sessions")
+      .update({ status: data.status })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    const note =
+      data.status === "operator"
+        ? "Сотрудник магазина подключился к чату."
+        : data.status === "bot"
+          ? "Чат снова ведёт ИИ-консультант."
+          : data.status === "closed"
+            ? "Чат закрыт сотрудником магазина."
+            : null;
+    if (note) {
+      await context.supabase
+        .from("chat_messages")
+        .insert({ session_id: data.id, role: "system", content: note });
+    }
+    return { ok: true };
+  });

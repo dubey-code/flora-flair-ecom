@@ -5,7 +5,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Order, Product } from "@/lib/shop-types";
 
 const PRODUCT_COLUMNS =
-  "id, slug, title, subtitle, description, composition, care, price, old_price, category_id, tags, images, stock, published, featured";
+  "id, slug, title, subtitle, description, composition, care, price, old_price, category_id, tags, images, stock, published, featured, created_at";
+
 
 async function assertAdmin(context: { supabase: any; userId: string }) {
   const { data, error } = await context.supabase.rpc("has_role", {

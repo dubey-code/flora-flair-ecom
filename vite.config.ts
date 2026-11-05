@@ -7,7 +7,7 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
-  base: "/flora-flair-ecom/",
+ base: "/flora-flair-ecom/",
   
 
   tanstackStart: {
